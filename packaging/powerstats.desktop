@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=PowerStats
+Comment=High-Fidelity Power Diagnostics and Analytics
+Exec=powerstats
+Icon=preferences-system-power
+Terminal=false
+Type=Application
+Categories=System;Utility;HardwareSettings;
+Keywords=battery;power;usage;monitor;diagnostics;
+StartupNotify=true
