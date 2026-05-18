@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PowerStats App Icon
+  Theme: power monitoring, analytics, energy tracking
+  Style: clean, modern, minimal, tech-focused
+  Color palette:
+    - Primary:   #FF6B35 (energetic orange)
+    - Secondary: #2D3748 (dark slate)
+    - Accent:    #48BB78 (health green)
+    - BG:        #1A202C (deep dark)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1A202C;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2D3748;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FBD38D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF6B35;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bar1Grad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#FF6B35;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bar2Grad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#48BB78;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#48BB78;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bar3Grad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#FF6B35;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#bgGrad)" />
+
+  <!-- Subtle outer ring -->
+  <circle cx="64" cy="64" r="58" fill="none" stroke="#FF6B35" stroke-width="1.5" stroke-opacity="0.3"/>
+
+  <!-- Bar chart (bottom area: analytics motif) -->
+  <!-- Bar 1 (short) -->
+  <rect x="22" y="82" width="14" height="22" rx="3" fill="url(#bar1Grad)" opacity="0.85"/>
+  <!-- Bar 2 (tall) -->
+  <rect x="42" y="62" width="14" height="42" rx="3" fill="url(#bar2Grad)" opacity="0.85"/>
+  <!-- Bar 3 (medium) -->
+  <rect x="62" y="72" width="14" height="32" rx="3" fill="url(#bar1Grad)" opacity="0.85"/>
+  <!-- Bar 4 (taller) -->
+  <rect x="82" y="54" width="14" height="50" rx="3" fill="url(#bar2Grad)" opacity="0.85"/>
+
+  <!-- Baseline -->
+  <line x1="18" y1="105" x2="110" y2="105" stroke="#FF6B35" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <!-- Lightning bolt (power symbol, centered top area) -->
+  <polygon
+    points="72,16 54,60 66,60 56,96 84,48 70,48"
+    fill="url(#boltGrad)"
+    filter="url(#glow)"
+  />
+</svg>

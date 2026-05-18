@@ -1,16 +1,25 @@
+import json
+import logging
+import os
+import threading
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Gdk
+from gi.repository import Gtk, Adw, Gdk, GLib
 
 from usage_view import UsageView
 from app_details import AppDetailsPage
+from version import __version__
 import analytics_data
+
+log = logging.getLogger("powerstats.window")
+_CONFIG_PATH = os.path.expanduser("~/.config/powerstats/config.json")
 
 class ActivityWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_title("PowerStats")
+        self._loading = True
         
         display = Gdk.Display.get_default()
         monitors = display.get_monitors()
@@ -23,7 +32,7 @@ class ActivityWindow(Adw.ApplicationWindow):
         else:
             self.set_default_size(1000, 800)
 
-        self.analytics_data = analytics_data.get_analytics_data()
+        self.analytics_data = None
 
         # NavigationView
         self.nav_view = Adw.NavigationView()
@@ -37,11 +46,20 @@ class ActivityWindow(Adw.ApplicationWindow):
         
         # HeaderBar with proper title
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title="PowerStats", subtitle="Usage Monitor"))
+        self._window_title = Adw.WindowTitle(title="PowerStats", subtitle=f"v{__version__} — Loading…")
+        header.set_title_widget(self._window_title)
         main_box.append(header)
+
+        self._spinner = Gtk.Spinner()
+        self._spinner.set_spinning(True)
+        self._spinner.set_margin_top(48)
+        self._spinner.set_halign(Gtk.Align.CENTER)
+        self._spinner.set_valign(Gtk.Align.CENTER)
+        main_box.append(self._spinner)
 
         top_clamp = Adw.Clamp()
         top_clamp.set_maximum_size(800)
+        top_clamp.set_visible(False)
         main_box.append(top_clamp)
         
         top_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -68,10 +86,8 @@ class ActivityWindow(Adw.ApplicationWindow):
         model = Gtk.StringList.new(["Balanced", "Quiet", "Analyze", "Battery Saver"])
         power_mode_row.set_model(model)
         
-        import json
-        import os
         try:
-            with open(os.path.expanduser("~/.config/powerstats/config.json")) as f:
+            with open(_CONFIG_PATH) as f:
                 cfg = json.load(f)
                 power_mode_row.set_selected(cfg.get("power_mode", 0))
         except Exception:
@@ -91,7 +107,7 @@ class ActivityWindow(Adw.ApplicationWindow):
         top_content.append(info_group)
         
         # Dropdown for timeframe
-        dropdown_model = Gtk.StringList.new(["Last 24 Hours", "Total Usage"])
+        dropdown_model = Gtk.StringList.new(["Last 24 Hours", "Last 7 Days", "Total Usage"])
         dropdown = Gtk.DropDown(model=dropdown_model)
         dropdown.set_halign(Gtk.Align.END)
         dropdown.set_margin_start(24)
@@ -102,24 +118,46 @@ class ActivityWindow(Adw.ApplicationWindow):
         dropdown.connect("notify::selected-item", self._on_dropdown_changed)
         top_content.append(dropdown)
 
-        # Stack for the timeframes
+        # Stack for the timeframes (populated after async data load)
         self.stack = Adw.ViewStack()
         self.stack.set_vexpand(True)
         main_box.append(self.stack)
 
-        # Populate the stack with the two analytics views
-        for view_name, data in self.analytics_data.items():
-            if view_name in ["comparison", "aging_forecast"]: 
+        # Add main page to nav view
+        self.nav_view.add(self.main_page)
+
+        # Lazy-load analytics data off the main thread
+        self._top_clamp = top_clamp
+        self._dropdown = dropdown
+        threading.Thread(target=self._load_analytics_async, daemon=True).start()
+
+    def _load_analytics_async(self) -> None:
+        """Load analytics data on a background thread, then update UI on main thread."""
+        log.info("Loading analytics data…")
+        try:
+            data = analytics_data.get_analytics_data()
+        except Exception:
+            log.exception("Failed to load analytics data")
+            data = None
+        GLib.idle_add(self._on_analytics_loaded, data)
+
+    def _on_analytics_loaded(self, data: dict | None) -> None:
+        """Called on the GTK main thread once data is ready."""
+        self.analytics_data = data or {}
+        self._spinner.set_spinning(False)
+        self._spinner.set_visible(False)
+        self._top_clamp.set_visible(True)
+        self._window_title.set_subtitle(f"v{__version__} — Usage Monitor")
+        log.info("Analytics data loaded, populating views")
+
+        for view_name, view_data in self.analytics_data.items():
+            if view_name in ["comparison", "aging_forecast"]:
                 continue
             comp_text = self.analytics_data.get("comparison", "")
             aging_text = self.analytics_data.get("aging_forecast", "")
-            view = UsageView(data, comp_text, aging_text)
-            view.connect('app-clicked', self._on_app_clicked, data)
-            
+            view = UsageView(view_data, comp_text, aging_text)
+            view.connect("app-clicked", self._on_app_clicked, view_data)
             self.stack.add_titled(view, view_name, view_name)
-
-        # Add main page to nav view
-        self.nav_view.add(self.main_page)
 
     def _on_dropdown_changed(self, dropdown, param):
         selected = dropdown.get_selected_item()
@@ -132,17 +170,14 @@ class ActivityWindow(Adw.ApplicationWindow):
         details_page = AppDetailsPage(session_data, day_data)
         self.nav_view.push(details_page)
 
-    def _on_power_mode_changed(self, combo_row, param):
+    def _on_power_mode_changed(self, combo_row, param) -> None:
         idx = combo_row.get_selected()
-        import json
-        import os
-        path = os.path.expanduser("~/.config/powerstats/config.json")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
         try:
-            with open(path, "w") as f:
+            with open(_CONFIG_PATH, "w") as f:
                 json.dump({"power_mode": idx}, f)
         except Exception:
-            pass
+            log.warning("Failed to save power mode config")
 
     def _on_transparency_clicked(self, btn):
         page = Adw.NavigationPage(title="Transparency", tag="transparency")

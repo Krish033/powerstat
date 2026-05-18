@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PowerStats symbolic icon (single-color, for GNOME panel/headerbar use) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <style>
+    path, rect, polygon { fill: currentColor; }
+  </style>
+  <!-- Lightning bolt -->
+  <polygon points="9,1 5.5,8 8,8 6.5,15 12,6.5 9,6.5" />
+</svg>

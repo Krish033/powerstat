@@ -1,7 +1,15 @@
+import io
+import logging
+import subprocess
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, Adw, GdkPixbuf
+from datetime import timedelta
+import cairo
+
+log = logging.getLogger("powerstats.app_details")
 
 class AppDetailsPage(Adw.NavigationPage):
     def __init__(self, session_data, day_data, **kwargs):
@@ -17,7 +25,25 @@ class AppDetailsPage(Adw.NavigationPage):
         
         # Toolbar
         toolbar = Adw.HeaderBar()
-        toolbar.set_title_widget(Adw.WindowTitle(title="PowerStats", subtitle="Usage Monitor"))
+        toolbar.set_title_widget(Adw.WindowTitle(title=self.session.get("name", "App Details"), subtitle="Usage Details"))
+        
+        # Move Force Stop to top right
+        self.btn_stop = Gtk.Button(icon_name="process-stop-symbolic")
+        self.btn_stop.add_css_class("flat")
+        self.btn_stop.set_tooltip_text("Force Stop Application")
+        
+        SAFE_NAMES = ["gnome-shell", "systemd", "xwayland", "pipewire", "pulseaudio", "networkmanager"]
+        process_name = self.session.get("name", "").lower()
+        is_critical = self.session.get("is_bg", False) or any(s in process_name for s in SAFE_NAMES)
+        
+        if is_critical:
+            self.btn_stop.set_sensitive(False)
+            self.btn_stop.set_tooltip_text("Safety feature: Critical processes cannot be force stopped.")
+        else:
+            self.btn_stop.add_css_class("destructive-action")
+            self.btn_stop.connect("clicked", self._on_force_stop_clicked)
+            
+        toolbar.pack_end(self.btn_stop)
         main_box.append(toolbar)
         
         # Content Box
@@ -42,7 +68,7 @@ class AppDetailsPage(Adw.NavigationPage):
         content.append(header_box)
         
         # 1. PRIMARY LAYER: Human Insights
-        insights_group = Adw.PreferencesGroup(title="💡 Intelligent Insight")
+        insights_group = Adw.PreferencesGroup(title="Intelligent Insight")
         
         row_insight = Adw.ActionRow(title="Behavioral Impact")
         insight_text = "High background drain" if self.session.get("is_bg") else "Preventing idle sleep and high CPU"
@@ -108,7 +134,7 @@ class AppDetailsPage(Adw.NavigationPage):
         
         # Battery
         row_bat = Adw.ActionRow(title="Battery Used")
-        self.lbl_bat = Gtk.Label(label=f"{self.session['battery_usage']}%")
+        self.lbl_bat = Gtk.Label(label=f"{self.session['battery_usage']}")
         row_bat.add_suffix(self.lbl_bat)
         details_group.add(row_bat)
         
@@ -145,34 +171,8 @@ class AppDetailsPage(Adw.NavigationPage):
         
         content.append(advanced_group)
         
-        # Action Buttons
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        action_box.set_halign(Gtk.Align.CENTER)
-        
-        btn_opt = Gtk.Button(label="Optimize Battery")
-        btn_opt.add_css_class("suggested-action")
-        btn_opt.add_css_class("pill")
-        
-        btn_stop = Gtk.Button(label="Force Stop")
-        
-        # Force-Stop Safety Mechanism
-        SAFE_NAMES = ["gnome-shell", "systemd", "xwayland", "pipewire", "pulseaudio", "networkmanager"]
-        process_name = self.session.get("name", "").lower()
-        is_critical = self.session.get("is_bg", False) or any(s in process_name for s in SAFE_NAMES)
-        
-        if is_critical:
-            btn_stop.set_sensitive(False)
-            btn_stop.set_tooltip_text("Safety feature: Critical system processes cannot be force stopped.")
-        else:
-            btn_stop.add_css_class("destructive-action")
-            btn_stop.connect("clicked", self._on_force_stop_clicked)
-            
-        btn_stop.add_css_class("pill")
-        
-        action_box.append(btn_opt)
-        action_box.append(btn_stop)
-        
-        content.append(action_box)
+        # Action Buttons removed for minimalism, Force Stop moved to toolbar
+        pass
         
         # Wrap in ScrolledWindow
         scrolled = Gtk.ScrolledWindow()
@@ -199,12 +199,11 @@ class AppDetailsPage(Adw.NavigationPage):
         def on_response(dlg, response):
             if response == "stop":
                 try:
-                    import subprocess
                     pid = self.session.get("process_id")
                     if pid:
-                        subprocess.run(["kill", "-9", str(pid)])
+                        subprocess.run(["kill", "-9", str(pid)], check=False)
                 except Exception:
-                    pass
+                    log.exception("Force stop failed for pid %s", self.session.get("process_id"))
                 
         dialog.connect("response", on_response)
         
@@ -228,17 +227,27 @@ class AppDetailsPage(Adw.NavigationPage):
             if not hr_str and not m_str: m_str = "0 mins"
             usage_str = (hr_str + m_str).strip()
             
-            hour_start = b_idx
-            hour_end = (b_idx + 1) % 24
+            # Safely get bucket time range for display
+            bucket_entries = self.day_data["buckets"][b_idx]
+            bucket_start = None
+            if bucket_entries:
+                bucket_start = bucket_entries[0].get("start_time_dt")
             
-            period_s = "AM" if hour_start < 12 else "PM"
-            h_s = hour_start % 12 or 12
-            
-            period_e = "AM" if hour_end < 12 else "PM"
-            h_e = hour_end % 12 or 12
-            
-            self.lbl_time.set_label(f"{usage_str} ({h_s:02d}:00 {period_s} - {h_e:02d}:00 {period_e})")
-            self.lbl_bat.set_label(f"{round(total_bat, 1)}%")
+            if bucket_start is not None:
+                bucket_end = bucket_start + timedelta(hours=1)
+                
+                period_s = "AM" if bucket_start.hour < 12 else "PM"
+                h_s = bucket_start.hour % 12 or 12
+                
+                period_e = "AM" if bucket_end.hour < 12 else "PM"
+                h_e = bucket_end.hour % 12 or 12
+                
+                self.lbl_time.set_label(f"{usage_str} ({h_s:02d}:00 {period_s} - {h_e:02d}:00 {period_e})")
+            else:
+                label_text = self.day_data["labels"][b_idx] if b_idx < len(self.day_data["labels"]) else ""
+                self.lbl_time.set_label(f"{usage_str} ({label_text})")
+                
+            self.lbl_bat.set_label(f"{round(total_bat, 1)}")
             self.lbl_up.set_label("-")
             
         else:
@@ -250,142 +259,200 @@ class AppDetailsPage(Adw.NavigationPage):
             if not hr_str and not m_str: m_str = "1 min"
             usage_str = (hr_str + m_str).strip()
             self.lbl_time.set_label(usage_str)
-            self.lbl_bat.set_label(f"{round(self.session['battery_usage'], 1)}%")
+            self.lbl_bat.set_label(f"{round(self.session['battery_usage'], 1)}")
             self.lbl_up.set_label(self.session["updated_at"])
 
-    def _on_bar_clicked(self, gesture, n_press, x, y, b_idx):
+
+    def _build_app_graph(self):
+        graph_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        buckets   = self.day_data["buckets"]
+        num_buckets = len(buckets)
+        app_name  = self.session["name"]
+        cat       = self.session.get("category", "other_app")
+
+        # Precompute per-bucket data
+        self._app_graph_data = []
+        app_max_y = 10
+        for b_idx in range(num_buckets):
+            app_sessions = [s for s in buckets[b_idx] if s["name"] == app_name]
+            if app_sessions:
+                dur = app_sessions[0]["duration_mins"]
+                procs = app_sessions[0].get("processes", [])
+                if dur > app_max_y:
+                    app_max_y = dur
+            else:
+                dur = 0
+                procs = []
+            label_text = self.day_data["labels"][b_idx] if b_idx < len(self.day_data["labels"]) else ""
+            show_label = not (num_buckets == 24 and b_idx % 4 != 0 and b_idx != 23)
+            self._app_graph_data.append((dur, procs, label_text, show_label))
+
+        self._app_max_y  = ((int(app_max_y) // 10) + 1) * 10
+        self._app_cat    = cat
+        self._num_buckets = num_buckets
+
+        # Gtk.Picture fed from off-screen cairo.ImageSurface (bypasses gi._gi_cairo).
+        self._chart_picture = Gtk.Picture()
+        self._chart_picture.set_hexpand(True)
+        self._chart_picture.set_size_request(-1, 220)
+        self._chart_picture.set_can_shrink(True)
+        self._chart_picture.set_keep_aspect_ratio(False)
+
+        self._chart_render_w = 800
+        self._chart_render_h = 220
+        self._render_and_set_chart()
+
+        click = Gtk.GestureClick.new()
+        click.connect("pressed", self._on_chart_clicked)
+        self._chart_picture.add_controller(click)
+
+        graph_wrapper.append(self._chart_picture)
+
+        # Legend below chart
+        legend_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        legend_box.set_halign(Gtk.Align.CENTER)
+        legend_box.set_margin_top(4)
+        legend_box.set_margin_bottom(8)
+
+        def add_legend_item(label, hex_color):
+            item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            dot = Gtk.Box()
+            dot.set_size_request(12, 12)
+            dot.set_valign(Gtk.Align.CENTER)
+            css = Gtk.CssProvider()
+            css.load_from_data(f".lgdot2{{background-color:{hex_color};border-radius:3px;}}".encode())
+            dot.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            dot.add_css_class("lgdot2")
+            lbl = Gtk.Label(label=label)
+            lbl.add_css_class("caption")
+            lbl.add_css_class("dim-label")
+            item.append(dot)
+            item.append(lbl)
+            legend_box.append(item)
+
+        if cat == 'background':
+            add_legend_item("Background Process", "#ffffff")
+        elif cat == 'system_app':
+            add_legend_item("System App", "#ffcc80")
+        else:
+            add_legend_item("User App", "#f57c00")
+        graph_wrapper.append(legend_box)
+
+        return graph_wrapper
+
+    def _render_and_set_chart(self):
+        """Render app timeline to ImageSurface -> PNG -> GdkPixbuf -> Gtk.Picture."""
+        width  = self._chart_render_w
+        height = self._chart_render_h
+
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+        ctx  = cairo.Context(surf)
+
+        ctx.set_source_rgba(0, 0, 0, 0)
+        ctx.paint()
+
+        y_axis_w  = 40
+        x_label_h = 22
+        pad_top   = 10
+        pad_right = 6
+
+        chart_x = y_axis_w
+        chart_y = pad_top
+        chart_w = max(1, width  - y_axis_w - pad_right)
+        chart_h = max(1, height - x_label_h - pad_top)
+
+        n     = self._num_buckets
+        max_y = self._app_max_y or 1
+        cat   = self._app_cat
+
+        fg_r, fg_g, fg_b = 1.0, 1.0, 1.0
+        grid_alpha  = 0.13
+        label_alpha = 0.55
+
+        if cat == 'background':
+            bar_rgb = (0.88, 0.88, 0.88)
+        elif cat == 'system_app':
+            bar_rgb = (1.0, 0.8, 0.502)
+        else:
+            bar_rgb = (0.961, 0.486, 0.0)
+
+        # Grid lines
+        ctx.set_source_rgba(fg_r, fg_g, fg_b, grid_alpha)
+        ctx.set_line_width(1.0)
+        for frac in (1.0, 0.5, 0.0):
+            y = chart_y + chart_h * (1.0 - frac)
+            ctx.move_to(chart_x, y)
+            ctx.line_to(chart_x + chart_w, y)
+        ctx.stroke()
+
+        # Y-axis labels
+        ctx.set_source_rgba(fg_r, fg_g, fg_b, label_alpha)
+        ctx.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        ctx.set_font_size(11)
+        for frac, val in ((1.0, max_y), (0.5, max_y // 2), (0.0, 0)):
+            text = f"{val}m"
+            ext  = ctx.text_extents(text)
+            y    = chart_y + chart_h * (1.0 - frac)
+            ctx.move_to(y_axis_w - ext.width - 5, y + ext.height / 2)
+            ctx.show_text(text)
+
+        bar_total_w = chart_w / n if n > 0 else chart_w
+        bar_w       = max(3, bar_total_w * 0.55)
+        bar_gap     = (bar_total_w - bar_w) / 2
+
+        for b_idx, (dur, procs, label_text, show_label) in enumerate(self._app_graph_data):
+            bar_x = chart_x + b_idx * bar_total_w + bar_gap
+            alpha = 0.25 if (self.current_selected_bucket is not None and b_idx != self.current_selected_bucket) else 1.0
+
+            if dur > 0:
+                ratio = min(1.0, dur / max_y)
+                bar_h = ratio * chart_h
+                r, g, b = bar_rgb
+                ctx.set_source_rgba(r, g, b, alpha)
+                ctx.rectangle(bar_x, chart_y + chart_h - bar_h, bar_w, bar_h)
+                ctx.fill()
+            else:
+                ctx.set_source_rgba(fg_r, fg_g, fg_b, 0.08 * alpha)
+                ctx.rectangle(bar_x, chart_y + chart_h - 2, bar_w, 2)
+                ctx.fill()
+
+            if show_label and label_text:
+                ctx.set_source_rgba(fg_r, fg_g, fg_b, label_alpha)
+                ctx.set_font_size(10)
+                ext = ctx.text_extents(label_text)
+                lx  = bar_x + bar_w / 2 - ext.width / 2
+                ly  = chart_y + chart_h + x_label_h - 5
+                ctx.move_to(lx, ly)
+                ctx.show_text(label_text)
+
+        buf = io.BytesIO()
+        surf.write_to_png(buf)
+        data = buf.getvalue()
+
+        loader = GdkPixbuf.PixbufLoader.new_with_type('png')
+        loader.write(data)
+        loader.close()
+        pb = loader.get_pixbuf()
+        self._chart_picture.set_pixbuf(pb)
+
+    def _on_chart_clicked(self, gesture, n_press, x, y):
+        """Map click x-coordinate back to bucket index."""
+        alloc = self._chart_picture.get_allocation()
+        y_axis_w  = 40
+        pad_right = 6
+        chart_w   = max(1, alloc.width - y_axis_w - pad_right)
+        n = self._num_buckets
+        if n == 0: return
+        bar_total_w = chart_w / n
+        bx = x - y_axis_w
+        if bx < 0 or bx > chart_w: return
+        b_idx = max(0, min(n - 1, int(bx / bar_total_w)))
+
         if self.current_selected_bucket == b_idx:
             self.current_selected_bucket = None
         else:
             self.current_selected_bucket = b_idx
-            
-        for i, (container, bar) in enumerate(self.bars):
-            if self.current_selected_bucket is not None and i != self.current_selected_bucket:
-                bar.set_opacity(0.3)
-            else:
-                bar.set_opacity(1.0)
-                
-        self._update_details()
 
-    def _build_app_graph(self):
-        graph_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        
-        master_graph_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        master_graph_box.set_size_request(-1, 150)
-        
-        buckets = self.day_data["buckets"]
-        app_max_y = 10
-        for b_idx in range(24):
-            val = sum(s["duration_mins"] for s in buckets[b_idx] if s["name"] == self.session["name"])
-            if val > app_max_y: app_max_y = val
-            
-        app_max_y = ((int(app_max_y) // 10) + 1) * 10
-        
-        y_axis_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        y_axis_box.set_valign(Gtk.Align.FILL)
-        y_axis_box.set_vexpand(True)
-        
-        lbl_max = Gtk.Label(label=f"{app_max_y}m")
-        lbl_max.add_css_class("caption")
-        lbl_max.add_css_class("dim-label")
-        lbl_max.set_valign(Gtk.Align.START)
-        
-        lbl_mid = Gtk.Label(label=f"{app_max_y // 2}m")
-        lbl_mid.add_css_class("caption")
-        lbl_mid.add_css_class("dim-label")
-        lbl_mid.set_valign(Gtk.Align.CENTER)
-        lbl_mid.set_vexpand(True)
-        
-        lbl_min = Gtk.Label(label="0m")
-        lbl_min.add_css_class("caption")
-        lbl_min.add_css_class("dim-label")
-        lbl_min.set_valign(Gtk.Align.END)
-        lbl_min.set_margin_bottom(24) 
-        
-        y_axis_box.append(lbl_max)
-        y_axis_box.append(lbl_mid)
-        y_axis_box.append(lbl_min)
-        master_graph_box.append(y_axis_box)
-        
-        graph_area = Gtk.Overlay()
-        graph_area.set_hexpand(True)
-        
-        grid_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        grid_box.set_valign(Gtk.Align.FILL)
-        grid_box.set_margin_bottom(24)
-        
-        for _ in range(3):
-            line = Gtk.Box()
-            line.set_size_request(-1, 1)
-            line.add_css_class("grid-line")
-            grid_box.append(line)
-            if _ < 2:
-                spacer = Gtk.Box()
-                spacer.set_vexpand(True)
-                grid_box.append(spacer)
-        
-        graph_area.set_child(grid_box)
-        
-        bars_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        bars_container.set_homogeneous(True)
-        
-        for b_idx in range(24):
-            app_usage_mins = sum(s["duration_mins"] for s in buckets[b_idx] if s["name"] == self.session["name"])
-            
-            bar_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            bar_wrapper.set_valign(Gtk.Align.END)
-            
-            click_gesture = Gtk.GestureClick.new()
-            click_gesture.connect("pressed", self._on_bar_clicked, b_idx)
-            bar_wrapper.add_controller(click_gesture)
-            
-            bar = Gtk.Box()
-            bar.set_halign(Gtk.Align.CENTER)
-            
-            ratio = app_usage_mins / app_max_y if app_max_y > 0 else 0
-            height = max(4, int(150 * ratio)) if app_usage_mins > 0 else 4
-            bar.set_size_request(8, height)
-            
-            css_provider = Gtk.CssProvider()
-            if app_usage_mins > 0:
-                if self.session.get("is_bg", False):
-                    bg_color = "#ffb74d"
-                else:
-                    bg_color = "@accent_bg_color"
-            else:
-                bg_color = "@insensitive_bg_color"
-                
-            css_provider.load_from_data(f".barcolor {{ background-color: {bg_color}; border-radius: 2px 2px 0 0; transition: all 0.2s; }} .grid-line {{ background-color: alpha(@borders, 0.5); }}".encode())
-            bar.get_style_context().add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-            bar.add_css_class("barcolor")
-            
-            hour_24 = b_idx
-            period = "AM" if hour_24 < 12 else "PM"
-            hour_12 = hour_24 % 12 or 12
-            lbl = Gtk.Label(label=f"{hour_12}")
-            lbl.add_css_class("caption")
-            lbl.add_css_class("dim-label")
-            if b_idx % 2 != 0: lbl.set_opacity(0.0)
-            
-            bar_wrapper.append(bar)
-            bar_wrapper.append(lbl)
-            bars_container.append(bar_wrapper)
-            
-            self.bars.append((bar_wrapper, bar))
-            
-        graph_area.add_overlay(bars_container)
-        master_graph_box.append(graph_area)
-        
-        css = Gtk.CssProvider()
-        css.load_from_data(b".grid-line { background-color: alpha(currentColor, 0.1); }")
-        grid_box.get_first_child().get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        
-        graph_wrapper.append(master_graph_box)
-        
-        # graph_desc = Gtk.Label(label="Graph displays total usage time in minutes per hour window for this application.", xalign=0.0)
-        # graph_desc.add_css_class("caption")
-        # graph_desc.add_css_class("dim-label")
-        # graph_desc.set_margin_bottom(12)
-        # graph_wrapper.append(graph_desc)
-        
-        return graph_wrapper
+        self._render_and_set_chart()
+        self._update_details()

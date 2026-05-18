@@ -1,10 +1,12 @@
 [Desktop Entry]
 Name=PowerStats
-Comment=High-Fidelity Power Diagnostics and Analytics
+GenericName=Power Usage Monitor
+Comment=High-Fidelity Power Diagnostics and Analytics for Linux
 Exec=powerstats
-Icon=preferences-system-power
+Icon=io.github.powerstats.PowerStats
 Terminal=false
 Type=Application
-Categories=System;Utility;HardwareSettings;
-Keywords=battery;power;usage;monitor;diagnostics;
+Categories=System;Utility;HardwareSettings;Monitor;
+Keywords=battery;power;usage;monitor;diagnostics;energy;performance;
 StartupNotify=true
+StartupWMClass=powerstats

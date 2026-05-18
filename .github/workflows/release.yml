@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y python3-psutil
+
+      - name: Install test tools
+        run: pip install pytest psutil
+
+      - name: Run tests (gate)
+        working-directory: powerstats-1.0.0
+        run: python3 -m pytest tests/ -v --tb=short
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(python3 -c "import sys; sys.path.insert(0,'powerstats-1.0.0'); from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog for this release
+        id: changelog
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          with open("powerstats-1.0.0/CHANGELOG.md") as f:
+              content = f.read()
+          # Extract the first versioned section
+          match = re.search(r'## \[\d+\.\d+\.\d+\].*?\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
+          notes = match.group(1).strip() if match else "See CHANGELOG.md for details."
+          with open("/tmp/release_notes.md", "w") as f:
+              f.write(notes)
+          print("Extracted release notes.")
+          EOF
+
+      - name: Create release tarball
+        run: |
+          tar -czf powerstats-${{ steps.version.outputs.version }}.tar.gz \
+            --exclude='*/__pycache__' \
+            --exclude='*/.*' \
+            --exclude='*/test_tmp' \
+            --exclude='*/*.db' \
+            powerstats-1.0.0/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PowerStats v${{ steps.version.outputs.version }}"
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          files: |
+            powerstats-${{ steps.version.outputs.version }}.tar.gz

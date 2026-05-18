@@ -1,4 +1,54 @@
-debian
-./debian
+# Debian packaging
+debian/
 debian/*
 debian/**
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+MANIFEST
+
+# SQLite databases (user data — never commit)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Test artifacts
+test_tmp/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE / editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (user-specific, never commit)
+~/.config/powerstats/
+
+# Packaging output
+*.tar.gz
+*.deb
+*.rpm
+*.AppImage

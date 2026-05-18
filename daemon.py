@@ -1,10 +1,20 @@
-import sqlite3
-import time
-import psutil
-from datetime import datetime, timedelta
-import os
-import subprocess
+import json
+import logging
 import math
+import os
+import sqlite3
+import subprocess
+import time
+from datetime import datetime, timedelta
+
+import psutil
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("powerstats.daemon")
 
 DB_PATH = os.path.expanduser("~/.local/share/powerstats.db")
 # Run pruning every 1 hour (360 loops * 10 seconds = 3600 seconds)
@@ -49,18 +59,16 @@ def setup_db():
             FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
         )
     ''')
+    # Performance indexes — critical for UI query speed
+    c.execute('CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_process_stats_snapshot_id ON process_stats(snapshot_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_process_stats_name ON process_stats(name)')
     conn.commit()
-    
-    # Check if empty, if so, seed historical data
-    c.execute('SELECT COUNT(*) FROM snapshots')
-    if c.fetchone()[0] == 0:
-        seed_historical_data(conn)
-        
     return conn
 
-def prune_database(conn):
+def prune_database(conn) -> None:
     """Deletes data older than 7 days to prevent SQLite bloat."""
-    print("Running database pruning (removing data > 7 days old)...")
+    log.info("Running database pruning (removing data > 7 days old)...")
     c = conn.cursor()
     cutoff = datetime.now() - timedelta(days=7)
     
@@ -71,70 +79,14 @@ def prune_database(conn):
         WHERE snapshot_id IN (
             SELECT id FROM snapshots WHERE timestamp < ?
         )
-    ''', (cutoff,))
+    ''', (cutoff.strftime("%Y-%m-%d %H:%M:%S"),))
     
-    c.execute('DELETE FROM snapshots WHERE timestamp < ?', (cutoff,))
+    c.execute('DELETE FROM snapshots WHERE timestamp < ?', (cutoff.strftime("%Y-%m-%d %H:%M:%S"),))
     
-    # Reclaim disk space
-    c.execute('VACUUM')
+    # NOTE: VACUUM removed — it rewrites the entire DB file and causes
+    # lock contention with the UI. SQLite reuses freed pages automatically.
     conn.commit()
-    print("Pruning complete.")
-
-def seed_historical_data(conn):
-    print("Seeding historical database from current process heuristics...")
-    c = conn.cursor()
-    now = datetime.now()
-    
-    snapshot_ids = []
-    for i in range(24):
-        ts = now - timedelta(hours=24 - i)
-        c.execute('INSERT INTO snapshots (timestamp, rapl_ujoule, battery_rate) VALUES (?, ?, ?)', (ts, 0, 0.0))
-        snapshot_ids.append((c.lastrowid, ts))
-        
-    for p in psutil.process_iter(['pid', 'name', 'username', 'create_time']):
-        try:
-            with p.oneshot():
-                name = p.info['name']
-                if not name: continue
-                
-                start_ts = p.info['create_time']
-                start_dt = datetime.fromtimestamp(start_ts)
-                if start_dt < (now - timedelta(hours=24)):
-                    start_dt = now - timedelta(hours=24)
-                    
-                cpu = p.cpu_times().user + p.cpu_times().system
-                ctx = p.num_ctx_switches()
-                wakeups = ctx.voluntary + ctx.involuntary
-                io = p.io_counters()
-                disk = io.read_bytes + io.write_bytes
-                
-                gpu = 0
-                try:
-                    maps = p.memory_maps()
-                    if any('/dev/dri/' in m.path for m in maps): gpu = 1
-                except: pass
-                
-                # Enhanced baseline math for historical seed
-                power_score = (cpu * 10.0) + (wakeups * 0.05) + (disk * 0.000001) + (15.0 if gpu else 0.0)
-                if power_score < 1.0: continue
-                
-                alive_snapshots = [sid for sid, ts in snapshot_ids if ts >= start_dt]
-                if not alive_snapshots: continue
-                
-                fraction_score = power_score / len(alive_snapshots)
-                fraction_cpu = cpu / len(alive_snapshots)
-                fraction_wakeups = wakeups // len(alive_snapshots)
-                fraction_disk = disk // len(alive_snapshots)
-                
-                for sid in alive_snapshots:
-                    c.execute('''
-                        INSERT INTO process_stats (snapshot_id, pid, name, username, cpu_time, wakeups, disk_io, gpu_usage, power_score)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (sid, p.info['pid'], name, p.info['username'], fraction_cpu, fraction_wakeups, fraction_disk, gpu, fraction_score))
-        except:
-            pass
-    conn.commit()
-    print("Seeding complete.")
+    log.info("Pruning complete.")
 
 def get_rapl_energy():
     try:
@@ -197,7 +149,7 @@ def run_daemon():
     prev_rapl = get_rapl_energy()
     loop_count = 0
     
-    print("PowerStats Daemon running. High-fidelity data collection started...")
+    log.info("PowerStats Daemon running. High-fidelity data collection started...")
     while True:
         loop_count += 1
         if loop_count % PRUNE_INTERVAL_LOOPS == 0:
@@ -216,10 +168,10 @@ def run_daemon():
         # We use a try-except to handle backwards compatibility if the ALTER TABLE failed for some reason
         try:
             c.execute('INSERT INTO snapshots (timestamp, rapl_ujoule, battery_rate, cpu_temp, cpu_freq) VALUES (?, ?, ?, ?, ?)', 
-                      (timestamp, rapl_delta, bat_rate, cpu_temp, avg_freq_mhz))
+                      (timestamp.strftime("%Y-%m-%d %H:%M:%S"), rapl_delta, bat_rate, cpu_temp, avg_freq_mhz))
         except sqlite3.OperationalError:
             c.execute('INSERT INTO snapshots (timestamp, rapl_ujoule, battery_rate) VALUES (?, ?, ?)', 
-                      (timestamp, rapl_delta, bat_rate))
+                      (timestamp.strftime("%Y-%m-%d %H:%M:%S"), rapl_delta, bat_rate))
         snapshot_id = c.lastrowid
         
         current_state = {}
@@ -246,8 +198,7 @@ def run_daemon():
                     try:
                         maps = p.memory_maps()
                         if any('/dev/dri/' in m.path for m in maps): gpu = 1
-                    except psutil.AccessDenied:
-                        # Cannot read memory maps for root processes usually, which is fine
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
                         pass
                         
                     current_state[pid] = {
@@ -258,8 +209,7 @@ def run_daemon():
                         'disk': disk,
                         'gpu': gpu
                     }
-            except Exception:
-                # Catch-all for extreme process parsing instability.
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 # Processes disappear CONSTANTLY in Linux.
                 continue
                 
@@ -286,7 +236,7 @@ def run_daemon():
             cpu_score = math.pow(scaled_cpu_time, 1.4) * 10.0
             
             # Wakeups prevent sleep states, incredibly impactful for battery
-            wakeup_score = wakeup_delta * 0.05
+            wakeup_score = wakeup_delta * 0.005
             
             # Disk IO
             io_score = io_delta * 0.000001
@@ -297,7 +247,7 @@ def run_daemon():
             power_score = cpu_score + wakeup_score + io_score + gpu_score
             
             # Threshold to prevent DB spam for completely idle processes
-            if power_score > 0.05:
+            if power_score > 0.5:
                 c.execute('''
                     INSERT INTO process_stats (snapshot_id, pid, name, username, cpu_time, wakeups, disk_io, gpu_usage, power_score)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -309,14 +259,13 @@ def run_daemon():
         # Dynamically adjust polling speed based on Power Mode config
         sleep_time = 10
         try:
-            import json, os
             with open(os.path.expanduser("~/.config/powerstats/config.json")) as f:
                 cfg = json.load(f)
                 mode = cfg.get("power_mode", 0)
                 if mode == 1: sleep_time = 30 # Quiet
                 elif mode == 2: sleep_time = 5 # Analyze
                 elif mode == 3: sleep_time = 60 # Battery Saver
-        except Exception:
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
             pass
             
         time.sleep(sleep_time)

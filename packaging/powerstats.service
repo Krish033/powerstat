@@ -1,12 +1,18 @@
 [Unit]
 Description=PowerStats Telemetry Daemon
-After=network.target
+Documentation=https://github.com/powerstats/powerstats
+After=default.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 /usr/share/powerstats/daemon.py
 Restart=on-failure
-RestartSec=5
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=powerstats-daemon
 
 [Install]
 WantedBy=default.target
+
+

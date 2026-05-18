@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "powerstats"
+dynamic = ["version"]
+description = "High-Fidelity Power Diagnostics and Analytics for Linux"
+readme = "README.md"
+license = { text = "GPL-3.0-only" }
+requires-python = ">=3.10"
+keywords = ["power", "battery", "linux", "gtk", "gnome", "analytics"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "psutil>=5.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/powerstats/powerstats"
+Repository = "https://github.com/powerstats/powerstats"
+"Bug Tracker" = "https://github.com/powerstats/powerstats/issues"
+Changelog = "https://github.com/powerstats/powerstats/blob/master/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["powerstats*"]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+known_first_party = ["analytics_data", "app_details", "daemon", "usage_view", "version", "window"]
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore = ["E501", "W503"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
