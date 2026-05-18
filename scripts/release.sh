@@ -75,10 +75,8 @@ if $DO_UPLOAD; then
     gh release create "v$VERSION" \
         --title "PowerStats v$VERSION" \
         --notes-file "$PROJECT_ROOT/CHANGELOG.md" \
-        "$DEB_FILE" \
-        --repo powerstats/powerstats 2>/dev/null || \
-    gh release upload "v$VERSION" "$DEB_FILE" \
-        --repo powerstats/powerstats
+        "$DEB_FILE" 2>/dev/null || \
+    gh release upload "v$VERSION" "$DEB_FILE"
     echo "Uploaded to GitHub Releases."
 else
     echo "Skipped upload (pass --upload to upload via gh CLI)."

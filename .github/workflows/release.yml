@@ -35,7 +35,6 @@ jobs:
         run: pip install psutil
 
       - name: Run tests (release gate)
-        working-directory: powerstats-1.0.0
         run: python3 -m unittest tests/test_analytics.py -v
 
       - name: Extract version from tag
@@ -48,18 +47,16 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build .deb package
-        working-directory: powerstats-1.0.0
         run: bash scripts/build.sh --version="${{ steps.version.outputs.version }}"
 
       - name: Validate .deb package
-        working-directory: powerstats-1.0.0
         run: bash scripts/package.sh
 
       - name: Extract changelog for this release
         run: |
           python3 - <<'EOF'
           import re
-          with open("powerstats-1.0.0/CHANGELOG.md") as f:
+          with open("CHANGELOG.md") as f:
               content = f.read()
           match = re.search(r'## \[\d+\.\d+\.\d+\].*?\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
           notes = match.group(1).strip() if match else "See CHANGELOG.md for details."
@@ -70,11 +67,11 @@ jobs:
       - name: Create source tarball
         run: |
           tar -czf "powerstats-${{ steps.version.outputs.version }}.tar.gz" \
-            --exclude='*/__pycache__' \
-            --exclude='*/.git' \
-            --exclude='*/build' \
-            --exclude='*/*.db' \
-            powerstats-1.0.0/
+            --exclude='./__pycache__' \
+            --exclude='./.git' \
+            --exclude='./build' \
+            --exclude='./*.db' \
+            ./
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -84,5 +81,5 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           files: |
-            powerstats-1.0.0/build/powerstats_${{ steps.version.outputs.version }}_all.deb
+            build/powerstats_${{ steps.version.outputs.version }}_all.deb
             powerstats-${{ steps.version.outputs.version }}.tar.gz
