@@ -1,0 +1,4 @@
+#!/bin/sh
+# PowerStats launcher script
+# Installed to /usr/bin/powerstats by the .deb package
+exec python3 /usr/share/powerstats/main.py "$@"

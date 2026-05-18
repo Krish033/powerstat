@@ -1,7 +1,6 @@
-# Debian packaging
-debian/
-debian/*
-debian/**
+# Debian build output (root-level dpkg-buildpackage dirs only)
+/debian/
+/debian-build/
 
 # Python
 __pycache__/
@@ -46,6 +45,9 @@ Thumbs.db
 
 # Config (user-specific, never commit)
 ~/.config/powerstats/
+
+# Build output
+build/
 
 # Packaging output
 *.tar.gz

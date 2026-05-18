@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|purge|upgrade|deconfigure|failed-upgrade)
+        # Stop and disable the daemon for the current user if running in a session
+        if [ -n "$SUDO_USER" ] && command -v systemctl >/dev/null 2>&1; then
+            su - "$SUDO_USER" -c \
+                "systemctl --user stop powerstats.service; systemctl --user disable powerstats.service" \
+                2>/dev/null || true
+            SYSTEMD_USER_DIR="/home/$SUDO_USER/.config/systemd/user"
+            rm -f "$SYSTEMD_USER_DIR/powerstats.service"
+        fi
+    ;;
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+    ;;
+esac
+
+#DEBHELPER#
+exit 0

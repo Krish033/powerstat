@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.0] - 2024-05-01
+## [1.0.0] - 2026-05-18
 
 ### Added
 - **Async startup**: Analytics data is now loaded on a background thread via `GLib.idle_add`, eliminating the UI freeze on launch. A spinner is shown while data loads.
@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Database auto-pruning**: Data older than 7 days is purged every hour to prevent unbounded SQLite growth.
 - **Cascading foreign keys**: `process_stats` entries are auto-deleted via `ON DELETE CASCADE` when their parent `snapshots` row is pruned.
 - **Performance indexes**: `idx_snapshots_timestamp`, `idx_process_stats_snapshot_id`, `idx_process_stats_name` for fast UI queries.
+- **Debian package** (`powerstats_1.0.0_all.deb`): Professional `.deb` with `DEBIAN/control`, `postinst`, `prerm`, `postrm` — auto-enables daemon on install, refreshes icon/desktop caches.
+- **Build scripts** (`scripts/build.sh`, `scripts/package.sh`, `scripts/release.sh`, `scripts/install.sh`): Full build/validate/release/install automation.
+- **About dialog**: Native `Adw.AboutDialog` accessible from the header bar with version, license, website, and issue tracker.
 - **systemd user service** (`packaging/powerstats.service`): Daemon runs persistently in the background with `Restart=on-failure`.
 - **Tests** (`tests/test_analytics.py`): 7 unit tests covering empty DB, chronological buckets, categorization, partial/full bucket duration, 12-month labels, `start_time_dt` presence, and numeric battery usage.
 - **GitHub community files**: `LICENSE` (GPL-3.0), `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue templates, PR template.

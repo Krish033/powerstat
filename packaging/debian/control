@@ -1,0 +1,29 @@
+Package: powerstats
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10),
+         python3-gi,
+         python3-gi-cairo,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1,
+         gir1.2-gdkpixbuf-2.0,
+         python3-psutil,
+         upower
+Recommends: powertop
+Maintainer: PowerStats Contributors <powerstats@example.com>
+Homepage: https://github.com/powerstats/powerstats
+Description: High-Fidelity Power Diagnostics and Analytics for Linux
+ PowerStats is a native GTK4/Libadwaita application that explains your
+ system's power consumption and application battery impact in plain
+ human language rather than raw telemetry.
+ .
+ Features include:
+  - Per-app battery drain with behavioral explanations
+  - Last 24 Hours / 7 Days / 12 Month views
+  - Interactive stacked bar charts
+  - Intel RAPL hardware measurement support
+  - Battery aging forecast via UPower
+  - Background daemon with WAL-mode SQLite persistence
+  - systemd user service for continuous data collection

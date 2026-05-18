@@ -1,0 +1,45 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Update icon cache so the app icon appears immediately
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+        fi
+
+        # Update desktop database so app appears in launchers
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database /usr/share/applications || true
+        fi
+
+        # Enable and start the daemon for the installing user if running in a user session
+        if [ -n "$SUDO_USER" ] && command -v systemctl >/dev/null 2>&1; then
+            SYSTEMD_USER_DIR="/home/$SUDO_USER/.config/systemd/user"
+            mkdir -p "$SYSTEMD_USER_DIR"
+            ln -sf /usr/lib/systemd/user/powerstats.service \
+                   "$SYSTEMD_USER_DIR/powerstats.service" 2>/dev/null || true
+            su - "$SUDO_USER" -c \
+                "systemctl --user daemon-reload && systemctl --user enable --now powerstats.service" \
+                2>/dev/null || true
+        fi
+
+        echo ""
+        echo "PowerStats installed successfully."
+        echo ""
+        echo "The background daemon will start automatically on next login."
+        echo "To start it now, run:"
+        echo "  systemctl --user daemon-reload"
+        echo "  systemctl --user enable --now powerstats.service"
+        echo ""
+    ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+    ;;
+esac
+
+#DEBHELPER#
+exit 0

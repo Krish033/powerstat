@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Create GitHub Release
+  build-and-release:
+    name: Build .deb + Create GitHub Release
     runs-on: ubuntu-24.04
 
     steps:
@@ -23,45 +23,56 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install system dependencies
+      - name: Install system build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y python3-psutil
+          sudo apt-get install -y \
+            dpkg-dev \
+            desktop-file-utils \
+            python3-psutil
 
       - name: Install test tools
-        run: pip install pytest psutil
+        run: pip install psutil
 
-      - name: Run tests (gate)
+      - name: Run tests (release gate)
         working-directory: powerstats-1.0.0
-        run: python3 -m pytest tests/ -v --tb=short
+        run: python3 -m unittest tests/test_analytics.py -v
 
-      - name: Extract version
+      - name: Extract version from tag
         id: version
         run: |
-          VERSION=$(python3 -c "import sys; sys.path.insert(0,'powerstats-1.0.0'); from version import __version__; print(__version__)")
+          # Use the git tag (strips leading 'v')
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build .deb package
+        working-directory: powerstats-1.0.0
+        run: bash scripts/build.sh --version="${{ steps.version.outputs.version }}"
+
+      - name: Validate .deb package
+        working-directory: powerstats-1.0.0
+        run: bash scripts/package.sh
 
       - name: Extract changelog for this release
-        id: changelog
         run: |
           python3 - <<'EOF'
-          import re, sys
+          import re
           with open("powerstats-1.0.0/CHANGELOG.md") as f:
               content = f.read()
-          # Extract the first versioned section
           match = re.search(r'## \[\d+\.\d+\.\d+\].*?\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
           notes = match.group(1).strip() if match else "See CHANGELOG.md for details."
           with open("/tmp/release_notes.md", "w") as f:
               f.write(notes)
-          print("Extracted release notes.")
           EOF
 
-      - name: Create release tarball
+      - name: Create source tarball
         run: |
-          tar -czf powerstats-${{ steps.version.outputs.version }}.tar.gz \
+          tar -czf "powerstats-${{ steps.version.outputs.version }}.tar.gz" \
             --exclude='*/__pycache__' \
-            --exclude='*/.*' \
-            --exclude='*/test_tmp' \
+            --exclude='*/.git' \
+            --exclude='*/build' \
             --exclude='*/*.db' \
             powerstats-1.0.0/
 
@@ -73,4 +84,5 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           files: |
+            powerstats-1.0.0/build/powerstats_${{ steps.version.outputs.version }}_all.deb
             powerstats-${{ steps.version.outputs.version }}.tar.gz

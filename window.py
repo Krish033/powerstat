@@ -9,7 +9,10 @@ from gi.repository import Gtk, Adw, Gdk, GLib
 
 from usage_view import UsageView
 from app_details import AppDetailsPage
-from version import __version__
+from version import (
+    __version__, __app_id__, __app_name__,
+    __description__, __website__, __license__,
+)
 import analytics_data
 
 log = logging.getLogger("powerstats.window")
@@ -48,6 +51,13 @@ class ActivityWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         self._window_title = Adw.WindowTitle(title="PowerStats", subtitle=f"v{__version__} — Loading…")
         header.set_title_widget(self._window_title)
+
+        about_btn = Gtk.Button(icon_name="help-about-symbolic")
+        about_btn.set_tooltip_text("About PowerStats")
+        about_btn.add_css_class("flat")
+        about_btn.connect("clicked", self._on_about_clicked)
+        header.pack_end(about_btn)
+
         main_box.append(header)
 
         self._spinner = Gtk.Spinner()
@@ -178,6 +188,19 @@ class ActivityWindow(Adw.ApplicationWindow):
                 json.dump({"power_mode": idx}, f)
         except Exception:
             log.warning("Failed to save power mode config")
+
+    def _on_about_clicked(self, btn) -> None:
+        about = Adw.AboutDialog(
+            application_name=__app_name__,
+            application_icon=__app_id__,
+            developer_name="PowerStats Contributors",
+            version=__version__,
+            comments=__description__,
+            website=__website__,
+            issue_url="https://github.com/powerstats/powerstats/issues",
+            license_type=Gtk.License.GPL_3_0,
+        )
+        about.present(self)
 
     def _on_transparency_clicked(self, btn):
         page = Adw.NavigationPage(title="Transparency", tag="transparency")

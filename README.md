@@ -60,76 +60,104 @@ PowerStats refuses to be "another system monitor." Instead of showing that Firef
 
 ---
 
-## Installation
+## Install
 
-### Requirements
+### System Requirements
 
-| Dependency | Purpose |
-|---|---|
-| Python 3.10+ | Runtime |
-| GTK 4.0 + Libadwaita 1.x | UI framework |
-| `python3-gi`, `python3-gi-cairo` | Python GObject bindings |
-| `python3-psutil` | Process metrics |
-| `upower` | Battery hardware info |
+| Dependency | Purpose | Installed automatically by `.deb`? |
+|---|---|---|
+| Python 3.10+ | Runtime | ✅ |
+| GTK 4.0 + Libadwaita 1.x | UI framework | ✅ |
+| `python3-gi`, `python3-gi-cairo` | Python GObject bindings | ✅ |
+| `python3-psutil` | Process metrics | ✅ |
+| `upower` | Battery hardware info | ✅ |
 
-### Ubuntu / Debian
+### Option 1 — Download `.deb` from GitHub Releases (Recommended)
+
+> Tested on Debian 12, Ubuntu 22.04+, Linux Mint 21+, and any derivative.
+
+**Step 1.** Download the latest `.deb` from the [Releases page](https://github.com/powerstats/powerstats/releases/latest):
 
 ```bash
-sudo apt update
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 python3-psutil upower
+wget https://github.com/powerstats/powerstats/releases/latest/download/powerstats_1.0.0_all.deb
 ```
 
-### Fedora / RHEL
+**Step 2.** Install:
 
 ```bash
-sudo dnf install python3-gobject python3-cairo gtk4 libadwaita python3-psutil upower
+sudo dpkg -i powerstats_1.0.0_all.deb
 ```
 
-### Arch Linux
+**Step 3.** If dependency errors appear, fix them:
 
 ```bash
-sudo pacman -S python-gobject python-cairo gtk4 libadwaita python-psutil upower
+sudo apt --fix-broken install
 ```
 
----
+**Step 4.** Launch PowerStats:
 
-## Setup
+- Open your **Applications menu** → search "PowerStats"
+- Or run: `powerstats`
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/powerstats/powerstats.git
-cd powerstats/powerstats-1.0.0
-```
-
-### 2. Install the background daemon as a systemd user service
+The background daemon starts automatically on your next login. To start it immediately:
 
 ```bash
-mkdir -p ~/.config/systemd/user/
-sed "s|ExecStart=.*|ExecStart=/usr/bin/python3 $(pwd)/daemon.py|" \
-    packaging/powerstats.service > ~/.config/systemd/user/powerstats.service
-
 systemctl --user daemon-reload
 systemctl --user enable --now powerstats.service
 ```
 
-### 3. Verify the daemon is running
+---
+
+### Option 2 — Build from source
 
 ```bash
-systemctl --user status powerstats.service
-journalctl --user -u powerstats.service -f
+# 1. Install dependencies
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 python3-psutil upower
+
+# 2. Clone
+git clone https://github.com/powerstats/powerstats.git
+cd powerstats/powerstats-1.0.0
+
+# 3. Install (system-wide, requires sudo)
+sudo bash scripts/install.sh
+
+# 4. Or install via Makefile
+sudo make install
 ```
 
-### 4. Launch the dashboard
+### Option 3 — Run directly (no install)
 
 ```bash
+git clone https://github.com/powerstats/powerstats.git
+cd powerstats/powerstats-1.0.0
+
+# Start the daemon manually
+python3 daemon.py &
+
+# Launch the UI
 python3 main.py
 ```
 
-### System-wide install (optional)
+---
+
+## Uninstall
+
+### If installed via `.deb`
 
 ```bash
-sudo make install
+sudo dpkg -r powerstats
+```
+
+To also remove your local telemetry database:
+
+```bash
+rm -f ~/.local/share/powerstats.db
+```
+
+### If installed via `make install`
+
+```bash
+sudo make uninstall
 ```
 
 ---
