@@ -29,6 +29,7 @@ jobs:
           sudo apt-get install -y \
             dpkg-dev \
             desktop-file-utils \
+            librsvg2-bin \
             python3-psutil
 
       - name: Install test tools
@@ -36,6 +37,9 @@ jobs:
 
       - name: Run tests (release gate)
         run: python3 -m unittest tests/test_analytics.py -v
+
+      - name: Generate PNG icons from SVG
+        run: bash scripts/generate-icons.sh
 
       - name: Extract version from tag
         id: version
@@ -51,6 +55,16 @@ jobs:
 
       - name: Validate .deb package
         run: bash scripts/package.sh
+
+      - name: Confirm .deb artifact exists
+        run: |
+          DEB="build/powerstats_${{ steps.version.outputs.version }}_all.deb"
+          if [ ! -f "$DEB" ]; then
+            echo "ERROR: .deb not found at $DEB" >&2
+            ls -la build/ >&2
+            exit 1
+          fi
+          echo "Artifact ready: $DEB ($(du -sh "$DEB" | cut -f1))"
 
       - name: Extract changelog for this release
         run: |
@@ -71,6 +85,7 @@ jobs:
             --exclude='./.git' \
             --exclude='./build' \
             --exclude='./*.db' \
+            --exclude='./assets/icons/*.png' \
             ./
 
       - name: Create GitHub Release

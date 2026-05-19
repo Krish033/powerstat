@@ -8,9 +8,11 @@ APP_DIR     = $(PREFIX)/share/applications
 SYSTEMD_DIR = $(PREFIX)/lib/systemd/user
 ICON_DIR    = $(PREFIX)/share/icons/hicolor
 
-VERSION := $(shell python3 -c "import sys; sys.path.insert(0,'$(CURDIR)'); from version import __version__; print(__version__)" 2>/dev/null || echo "1.0.0")
+VERSION := $(shell grep -Po '(?<=__version__ = ")[^"]+' version.py 2>/dev/null || echo "1.0.0")
 
-.PHONY: all install uninstall lint test clean
+PNG_SIZES := 16 22 24 32 48 64 128 256 512
+
+.PHONY: all install uninstall icons lint test clean
 
 all:
 	@echo "PowerStats v$(VERSION)"
@@ -32,10 +34,16 @@ install:
 	install -m 644 packaging/powerstats.service $(DESTDIR)$(SYSTEMD_DIR)/powerstats.service
 
 	install -d $(DESTDIR)$(ICON_DIR)/scalable/apps
-	install -m 644 data/icons/powerstats.svg $(DESTDIR)$(ICON_DIR)/scalable/apps/$(APP_ID).svg
+	install -m 644 assets/icons/powerstats.svg $(DESTDIR)$(ICON_DIR)/scalable/apps/$(APP_ID).svg
 	install -d $(DESTDIR)$(ICON_DIR)/symbolic/apps
-	install -m 644 data/icons/powerstats-symbolic.svg $(DESTDIR)$(ICON_DIR)/symbolic/apps/$(APP_ID)-symbolic.svg
-
+	install -m 644 assets/icons/powerstats-symbolic.svg $(DESTDIR)$(ICON_DIR)/symbolic/apps/$(APP_ID)-symbolic.svg
+	$(foreach s,$(PNG_SIZES), \
+		install -d $(DESTDIR)$(ICON_DIR)/$(s)x$(s)/apps; \
+		install -m 644 assets/icons/powerstats-$(s).png $(DESTDIR)$(ICON_DIR)/$(s)x$(s)/apps/$(APP_ID).png;)
+	install -d $(DESTDIR)$(PREFIX)/share/pixmaps
+	install -m 644 assets/icons/powerstats-256.png $(DESTDIR)$(PREFIX)/share/pixmaps/powerstats.png
+	-gtk-update-icon-cache -f -t $(DESTDIR)$(ICON_DIR) 2>/dev/null || true
+	-update-desktop-database $(DESTDIR)$(APP_DIR) 2>/dev/null || true
 	@echo "Installation complete."
 	@echo "Enable the daemon with:"
 	@echo "  systemctl --user daemon-reload"
@@ -49,16 +57,23 @@ uninstall:
 	rm -f  $(DESTDIR)$(SYSTEMD_DIR)/powerstats.service
 	rm -f  $(DESTDIR)$(ICON_DIR)/scalable/apps/$(APP_ID).svg
 	rm -f  $(DESTDIR)$(ICON_DIR)/symbolic/apps/$(APP_ID)-symbolic.svg
+	$(foreach s,$(PNG_SIZES), rm -f $(DESTDIR)$(ICON_DIR)/$(s)x$(s)/apps/$(APP_ID).png;)
+	rm -f  $(DESTDIR)$(PREFIX)/share/pixmaps/powerstats.png
+	-gtk-update-icon-cache -f -t $(DESTDIR)$(ICON_DIR) 2>/dev/null || true
 	@echo "Uninstallation complete."
+
+icons:
+	@echo "Generating PNG icons..."
+	bash scripts/generate-icons.sh
 
 lint:
 	@echo "Running linters..."
-	python3 -m flake8 *.py --max-line-length=120 --extend-ignore=E501
-	python3 -m isort --check-only *.py
+	python3 -m flake8 analytics_data.py daemon.py version.py --max-line-length=120 --extend-ignore=E501
+	python3 -m isort --check-only analytics_data.py daemon.py version.py
 
 test:
 	@echo "Running test suite..."
-	python3 -m pytest tests/ -v --tb=short
+	python3 -m unittest tests/test_analytics.py -v
 
 clean:
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true

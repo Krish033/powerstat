@@ -100,6 +100,7 @@ install -m 644 "$PROJECT_ROOT/packaging/powerstats.desktop" \
 
 # ---------------------------------------------------------------------------
 # Install icons -> /usr/share/icons/hicolor/
+# PNG sizes required for reliable display in GNOME, KDE, XFCE, dock, launcher
 # ---------------------------------------------------------------------------
 ICON_SCALABLE="$STAGE_DIR/usr/share/icons/hicolor/scalable/apps"
 ICON_SYMBOLIC="$STAGE_DIR/usr/share/icons/hicolor/symbolic/apps"
@@ -109,6 +110,27 @@ install -m 644 "$PROJECT_ROOT/assets/icons/powerstats.svg" \
     "$ICON_SCALABLE/io.github.powerstats.PowerStats.svg"
 install -m 644 "$PROJECT_ROOT/assets/icons/powerstats-symbolic.svg" \
     "$ICON_SYMBOLIC/io.github.powerstats.PowerStats-symbolic.svg"
+
+# Install PNG icons at all standard hicolor sizes
+ICON_APP_ID="io.github.powerstats.PowerStats"
+for size in 16 22 24 32 48 64 128 256 512; do
+    PNG_SRC="$PROJECT_ROOT/assets/icons/powerstats-${size}.png"
+    if [ -f "$PNG_SRC" ]; then
+        PNG_DEST="$STAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps"
+        mkdir -p "$PNG_DEST"
+        install -m 644 "$PNG_SRC" "$PNG_DEST/${ICON_APP_ID}.png"
+    else
+        echo "WARNING: Missing PNG: $PNG_SRC — run: scripts/generate-icons.sh" >&2
+    fi
+done
+
+# Also install 256x256 as the pixmap fallback (used by legacy launchers)
+PIXMAP_DEST="$STAGE_DIR/usr/share/pixmaps"
+mkdir -p "$PIXMAP_DEST"
+if [ -f "$PROJECT_ROOT/assets/icons/powerstats-256.png" ]; then
+    install -m 644 "$PROJECT_ROOT/assets/icons/powerstats-256.png" \
+        "$PIXMAP_DEST/powerstats.png"
+fi
 
 # ---------------------------------------------------------------------------
 # Install systemd user service -> /usr/lib/systemd/user/
