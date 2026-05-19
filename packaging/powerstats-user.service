@@ -17,11 +17,14 @@ Environment=PYTHONUNBUFFERED=1
 # Absolute path — never rely on $PATH in service files
 ExecStart=/usr/bin/python3 /usr/share/powerstats/daemon.py
 
-# Restart policy: always restart on crash, but not on clean exit (code 0)
-Restart=on-failure
-RestartSec=10s
-# Rate limit: max 5 restarts in 2 minutes, then give up until next login
-StartLimitIntervalSec=120
+# WorkingDirectory must not be / — use the user's home
+WorkingDirectory=%h
+
+# Restart=always: restart on crash, clean exit, OOM kill, signal — everything
+Restart=always
+RestartSec=5s
+# Rate limit: max 5 restarts in 60s before systemd gives up (prevents tight loops)
+StartLimitIntervalSec=60
 StartLimitBurst=5
 
 # Allow systemd to kill the whole process group on stop

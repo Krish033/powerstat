@@ -1,80 +1,142 @@
 #!/bin/sh
 set -e
 
+# ---------------------------------------------------------------------------
+# has_live_user_session UID
+#   Returns 0 (true) if the user with the given UID has a running systemd
+#   user manager reachable via /run/user/$UID/systemd/.
+# ---------------------------------------------------------------------------
+has_live_user_session() {
+    _uid="$1"
+    _xdg_run="/run/user/$_uid"
+    # The systemd user manager creates this directory when it is running
+    [ -d "$_xdg_run/systemd" ]
+}
+
+# ---------------------------------------------------------------------------
+# enable_and_start_user_service  USERNAME  UID  HOME
+#   Ensures the service is enabled (wants symlink) and started right now.
+#   Three strategies tried in order of reliability:
+#     1. systemd-run --machine  — talks directly to user's service manager
+#        via the kernel cgroup/D-Bus bridge; works from root without a shell
+#     2. su -l + systemctl --user — classic approach; works when D-Bus is up
+#     3. Direct wants symlink   — no service manager contact needed; service
+#        will start on next login or linger boot
+# ---------------------------------------------------------------------------
+enable_and_start_user_service() {
+    _user="$1"
+    _uid="$2"
+    _home="$3"
+
+    # ── Prepare the user systemd config directory (owned by the user) ──────
+    _user_systemd="$_home/.config/systemd/user"
+    _wants_dir="$_user_systemd/default.target.wants"
+    mkdir -p "$_wants_dir"
+    chown -R "$_user" "$_user_systemd" 2>/dev/null || true
+
+    # ── Enable linger: daemon starts at boot even without a graphical login ─
+    loginctl enable-linger "$_user" 2>/dev/null || true
+
+    # ── Create the enable symlink (idempotent) ──────────────────────────────
+    ln -sf /usr/lib/systemd/user/powerstats.service \
+           "$_wants_dir/powerstats.service" 2>/dev/null || true
+    chown -h "$_user" "$_wants_dir/powerstats.service" 2>/dev/null || true
+
+    # ── Try to start the service right now if session is live ───────────────
+    if has_live_user_session "$_uid"; then
+        _started=0
+
+        # Strategy 1: systemd-run --machine (systemd 219+, Ubuntu 20.04+)
+        # This is the most reliable root→user bridge; does not need D-Bus
+        if command -v systemd-run >/dev/null 2>&1; then
+            systemd-run \
+                --machine="${_user}@.host" \
+                --user \
+                --pipe \
+                --quiet \
+                systemctl --user daemon-reload 2>/dev/null && \
+            systemd-run \
+                --machine="${_user}@.host" \
+                --user \
+                --pipe \
+                --quiet \
+                systemctl --user enable --now powerstats.service 2>/dev/null && \
+            _started=1 || true
+        fi
+
+        # Strategy 2: su -l + systemctl --user (fallback)
+        if [ "$_started" -eq 0 ]; then
+            su -l "$_user" -c \
+                "systemctl --user daemon-reload 2>/dev/null; \
+                 systemctl --user enable --now powerstats.service 2>/dev/null" \
+                2>/dev/null && _started=1 || true
+        fi
+
+        # Log outcome (visible in dpkg output and journalctl)
+        if [ "$_started" -eq 1 ]; then
+            echo "  [powerstats] Daemon started successfully for user '$_user'."
+        else
+            echo "  [powerstats] Daemon enabled; will start on next login."
+        fi
+    else
+        echo "  [powerstats] Daemon enabled; will start on next login."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Resolve who actually triggered the install
+# Covers: sudo dpkg -i, apt install, pkexec / GNOME Software
+# ---------------------------------------------------------------------------
+resolve_install_user() {
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        echo "$SUDO_USER"
+        return
+    fi
+    if [ -n "${PKEXEC_UID:-}" ]; then
+        getent passwd "$PKEXEC_UID" | cut -d: -f1
+        return
+    fi
+    # No interactive user context (e.g. apt in a CI script): leave empty
+    echo ""
+}
+
+# ===========================================================================
 case "$1" in
     configure)
+        # ── Reload system-level unit index ───────────────────────────────────
+        systemctl daemon-reload 2>/dev/null || true
+
         # ── Desktop integration caches ───────────────────────────────────────
-        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-            gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
-        fi
-        if command -v update-desktop-database >/dev/null 2>&1; then
-            update-desktop-database /usr/share/applications 2>/dev/null || true
-        fi
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+        update-desktop-database /usr/share/applications 2>/dev/null || true
 
-        # ── systemd user-preset (correct method for user services) ───────────
-        # This makes systemctl --user preset-all enable powerstats.service
-        # for every user the first time their user manager starts.
-        # Works regardless of install method (apt, dpkg, GUI, script).
-        if command -v systemctl >/dev/null 2>&1; then
-            systemctl daemon-reload 2>/dev/null || true
-        fi
+        # ── Enable + start for the installing user ───────────────────────────
+        INSTALL_USER=$(resolve_install_user)
 
-        # ── Enable for the installing interactive user (best-effort) ─────────
-        # Determine who actually ran the install (handles sudo and direct root)
-        INSTALL_USER="${SUDO_USER:-}"
-        if [ -z "$INSTALL_USER" ] && [ -n "${PKEXEC_UID:-}" ]; then
-            INSTALL_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
-        fi
-
-        if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+        if [ -n "$INSTALL_USER" ]; then
             INSTALL_UID=$(id -u "$INSTALL_USER" 2>/dev/null || true)
-            INSTALL_HOME=$(getent passwd "$INSTALL_USER" | cut -d: -f6)
+            INSTALL_HOME=$(getent passwd "$INSTALL_USER" | cut -d: -f6 || true)
 
-            if [ -n "$INSTALL_UID" ]; then
-                # Create the user-level systemd directory
-                USER_SYSTEMD_DIR="$INSTALL_HOME/.config/systemd/user"
-                mkdir -p "$USER_SYSTEMD_DIR"
-                chown "$INSTALL_USER" "$USER_SYSTEMD_DIR"
-
-                # Enable linger so the user service starts at boot without login
-                if command -v loginctl >/dev/null 2>&1; then
-                    loginctl enable-linger "$INSTALL_USER" 2>/dev/null || true
-                fi
-
-                # Enable the service in the user's systemd config
-                # Use XDG_RUNTIME_DIR if the user session is live, otherwise
-                # directly symlink into the user's systemd wants directory
-                XDG_RUN="/run/user/$INSTALL_UID"
-                if [ -d "$XDG_RUN" ] && [ -S "$XDG_RUN/systemd/private/notify" ] 2>/dev/null; then
-                    # Live session: talk to the user's systemd manager via su
-                    su -l "$INSTALL_USER" -c \
-                        "systemctl --user daemon-reload && \
-                         systemctl --user enable --now powerstats.service" \
-                        2>/dev/null || true
-                else
-                    # No live session (e.g. apt-get on a headless setup):
-                    # Manually create the wants symlink — equivalent to 'systemctl --user enable'
-                    WANTS_DIR="$USER_SYSTEMD_DIR/default.target.wants"
-                    mkdir -p "$WANTS_DIR"
-                    chown "$INSTALL_USER" "$WANTS_DIR"
-                    ln -sf /usr/lib/systemd/user/powerstats.service \
-                           "$WANTS_DIR/powerstats.service" 2>/dev/null || true
-                    chown -h "$INSTALL_USER" "$WANTS_DIR/powerstats.service" 2>/dev/null || true
-                fi
+            if [ -n "$INSTALL_UID" ] && [ -n "$INSTALL_HOME" ]; then
+                enable_and_start_user_service \
+                    "$INSTALL_USER" "$INSTALL_UID" "$INSTALL_HOME"
             fi
+        else
+            echo "  [powerstats] No interactive user detected."
+            echo "  [powerstats] The daemon will auto-enable on first login via systemd preset."
         fi
 
         echo ""
         echo "PowerStats installed successfully."
         echo ""
-        echo "The background daemon will start automatically on next login."
-        echo "To start it immediately:  systemctl --user start powerstats.service"
-        echo "To check its status:      systemctl --user status powerstats.service"
-        echo "To read its logs:         journalctl --user -u powerstats.service -f"
+        echo "  Status:  systemctl --user status powerstats.service"
+        echo "  Logs:    journalctl --user -u powerstats.service -f"
         echo ""
     ;;
+
     abort-upgrade|abort-remove|abort-deconfigure)
     ;;
+
     *)
         echo "postinst called with unknown argument '$1'" >&2
         exit 1
