@@ -22,7 +22,10 @@ for arg in "$@"; do
 done
 
 if [ -z "$VERSION" ]; then
-    VERSION=$(python3 -c "import sys; sys.path.insert(0,'$PROJECT_ROOT'); from version import __version__; print(__version__)" 2>/dev/null)
+    VERSION=$(grep -Po '(?<=__version__ = ")[^"]+' "$PROJECT_ROOT/version.py" 2>/dev/null || true)
+fi
+if [ -z "$VERSION" ]; then
+    VERSION=$(python3 -c "exec(open('$PROJECT_ROOT/version.py').read()); print(__version__)" 2>/dev/null || true)
 fi
 
 echo "========================================"

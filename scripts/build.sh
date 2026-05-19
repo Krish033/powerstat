@@ -14,10 +14,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-VERSION="${1:-}"
+VERSION=""
 ARCH="all"
 
-# Parse named args
+# Parse named args (only --version=X form accepted)
 for arg in "$@"; do
     case $arg in
         --version=*) VERSION="${arg#*=}" ;;
@@ -25,9 +25,15 @@ for arg in "$@"; do
     esac
 done
 
-# Read version from version.py if not supplied
+# Read version from version.py if not supplied via flag
 if [ -z "$VERSION" ]; then
-    VERSION=$(python3 -c "import sys; sys.path.insert(0,'$PROJECT_ROOT'); from version import __version__; print(__version__)" 2>/dev/null)
+    # grep is more reliable than python3 import in CI environments
+    VERSION=$(grep -Po '(?<=__version__ = ")[^"]+' "$PROJECT_ROOT/version.py" 2>/dev/null || true)
+fi
+
+# Final fallback: python3 (handles edge cases like single-quotes in version.py)
+if [ -z "$VERSION" ]; then
+    VERSION=$(python3 -c "exec(open('$PROJECT_ROOT/version.py').read()); print(__version__)" 2>/dev/null || true)
 fi
 
 if [ -z "$VERSION" ]; then
