@@ -30,11 +30,7 @@ jobs:
             --extend-ignore=E501,W503
 
       - name: isort (pure-Python modules only)
-        run: |
-          isort --check-only \
-            --known-third-party=psutil,gi \
-            --force-sort-within-sections \
-            analytics_data.py daemon.py version.py
+        run: isort --check-only analytics_data.py daemon.py version.py
 
   test:
     name: Tests (Python ${{ matrix.python-version }})

@@ -80,13 +80,14 @@ jobs:
 
       - name: Create source tarball
         run: |
-          tar -czf "powerstats-${{ steps.version.outputs.version }}.tar.gz" \
+          tar -czf "/tmp/powerstats-${{ steps.version.outputs.version }}.tar.gz" \
             --exclude='./__pycache__' \
             --exclude='./.git' \
             --exclude='./build' \
             --exclude='./*.db' \
             --exclude='./assets/icons/*.png' \
             ./
+          mv "/tmp/powerstats-${{ steps.version.outputs.version }}.tar.gz" ./
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

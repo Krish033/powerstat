@@ -48,6 +48,7 @@ target-version = ["py310"]
 profile = "black"
 line_length = 120
 known_first_party = ["analytics_data", "app_details", "daemon", "usage_view", "version", "window"]
+known_third_party = ["psutil", "gi"]
 
 [tool.flake8]
 max-line-length = 120
