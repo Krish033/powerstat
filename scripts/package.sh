@@ -62,15 +62,18 @@ for field in Package Version Architecture Depends Description; do
 done
 
 # -- Required files inside the deb
+# Use --fsys-tarfile + tar -t for unambiguous full path listing
+DEB_CONTENTS=$(dpkg-deb --fsys-tarfile "$DEB_FILE" | tar -t)
+
 for path in \
-    "./usr/bin/powerstats" \
-    "./usr/share/powerstats/main.py" \
-    "./usr/share/powerstats/daemon.py" \
-    "./usr/share/applications/io.github.powerstats.PowerStats.desktop" \
-    "./usr/share/icons/hicolor/scalable/apps/io.github.powerstats.PowerStats.svg" \
-    "./usr/lib/systemd/user/powerstats.service"
+    "usr/bin/powerstats" \
+    "usr/share/powerstats/main.py" \
+    "usr/share/powerstats/daemon.py" \
+    "usr/share/applications/io.github.powerstats.PowerStats.desktop" \
+    "usr/share/icons/hicolor/scalable/apps/io.github.powerstats.PowerStats.svg" \
+    "usr/lib/systemd/user/powerstats.service"
 do
-    dpkg-deb --contents "$DEB_FILE" | grep -q "$path" \
+    echo "$DEB_CONTENTS" | grep -qF "$path" \
         && check "Contains $path" "ok" \
         || check "Contains $path" "MISSING"
 done
