@@ -1,16 +1,38 @@
 [Unit]
 Description=PowerStats Telemetry Daemon
-Documentation=https://github.com/powerstats/powerstats
+Documentation=https://github.com/Krish033/powerstat
+# Start after the user session's basic services are up
 After=default.target
 
 [Service]
 Type=simple
+
+# Ensure ~ expands to the actual user's home, not root's
+Environment=HOME=%h
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=XDG_DATA_HOME=%h/.local/share
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+
+# Absolute path — never rely on $PATH in service files
 ExecStart=/usr/bin/python3 /usr/share/powerstats/daemon.py
+
+# Restart policy: always restart on crash, but not on clean exit (code 0)
 Restart=on-failure
-RestartSec=10
+RestartSec=10s
+# Rate limit: max 5 restarts in 2 minutes, then give up until next login
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Allow systemd to kill the whole process group on stop
+KillMode=control-group
+TimeoutStopSec=10s
+
+# Route all output to the systemd journal
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=powerstats-daemon
 
 [Install]
+# default.target is the correct target for user services (not multi-user.target)
 WantedBy=default.target

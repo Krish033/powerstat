@@ -3,34 +3,74 @@ set -e
 
 case "$1" in
     configure)
-        # Update icon cache so the app icon appears immediately
+        # ── Desktop integration caches ───────────────────────────────────────
         if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-            gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+            gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
         fi
-
-        # Update desktop database so app appears in launchers
         if command -v update-desktop-database >/dev/null 2>&1; then
-            update-desktop-database /usr/share/applications || true
+            update-desktop-database /usr/share/applications 2>/dev/null || true
         fi
 
-        # Enable and start the daemon for the installing user if running in a user session
-        if [ -n "$SUDO_USER" ] && command -v systemctl >/dev/null 2>&1; then
-            SYSTEMD_USER_DIR="/home/$SUDO_USER/.config/systemd/user"
-            mkdir -p "$SYSTEMD_USER_DIR"
-            ln -sf /usr/lib/systemd/user/powerstats.service \
-                   "$SYSTEMD_USER_DIR/powerstats.service" 2>/dev/null || true
-            su - "$SUDO_USER" -c \
-                "systemctl --user daemon-reload && systemctl --user enable --now powerstats.service" \
-                2>/dev/null || true
+        # ── systemd user-preset (correct method for user services) ───────────
+        # This makes systemctl --user preset-all enable powerstats.service
+        # for every user the first time their user manager starts.
+        # Works regardless of install method (apt, dpkg, GUI, script).
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload 2>/dev/null || true
+        fi
+
+        # ── Enable for the installing interactive user (best-effort) ─────────
+        # Determine who actually ran the install (handles sudo and direct root)
+        INSTALL_USER="${SUDO_USER:-}"
+        if [ -z "$INSTALL_USER" ] && [ -n "${PKEXEC_UID:-}" ]; then
+            INSTALL_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
+        fi
+
+        if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+            INSTALL_UID=$(id -u "$INSTALL_USER" 2>/dev/null || true)
+            INSTALL_HOME=$(getent passwd "$INSTALL_USER" | cut -d: -f6)
+
+            if [ -n "$INSTALL_UID" ]; then
+                # Create the user-level systemd directory
+                USER_SYSTEMD_DIR="$INSTALL_HOME/.config/systemd/user"
+                mkdir -p "$USER_SYSTEMD_DIR"
+                chown "$INSTALL_USER" "$USER_SYSTEMD_DIR"
+
+                # Enable linger so the user service starts at boot without login
+                if command -v loginctl >/dev/null 2>&1; then
+                    loginctl enable-linger "$INSTALL_USER" 2>/dev/null || true
+                fi
+
+                # Enable the service in the user's systemd config
+                # Use XDG_RUNTIME_DIR if the user session is live, otherwise
+                # directly symlink into the user's systemd wants directory
+                XDG_RUN="/run/user/$INSTALL_UID"
+                if [ -d "$XDG_RUN" ] && [ -S "$XDG_RUN/systemd/private/notify" ] 2>/dev/null; then
+                    # Live session: talk to the user's systemd manager via su
+                    su -l "$INSTALL_USER" -c \
+                        "systemctl --user daemon-reload && \
+                         systemctl --user enable --now powerstats.service" \
+                        2>/dev/null || true
+                else
+                    # No live session (e.g. apt-get on a headless setup):
+                    # Manually create the wants symlink — equivalent to 'systemctl --user enable'
+                    WANTS_DIR="$USER_SYSTEMD_DIR/default.target.wants"
+                    mkdir -p "$WANTS_DIR"
+                    chown "$INSTALL_USER" "$WANTS_DIR"
+                    ln -sf /usr/lib/systemd/user/powerstats.service \
+                           "$WANTS_DIR/powerstats.service" 2>/dev/null || true
+                    chown -h "$INSTALL_USER" "$WANTS_DIR/powerstats.service" 2>/dev/null || true
+                fi
+            fi
         fi
 
         echo ""
         echo "PowerStats installed successfully."
         echo ""
         echo "The background daemon will start automatically on next login."
-        echo "To start it now, run:"
-        echo "  systemctl --user daemon-reload"
-        echo "  systemctl --user enable --now powerstats.service"
+        echo "To start it immediately:  systemctl --user start powerstats.service"
+        echo "To check its status:      systemctl --user status powerstats.service"
+        echo "To read its logs:         journalctl --user -u powerstats.service -f"
         echo ""
     ;;
     abort-upgrade|abort-remove|abort-deconfigure)

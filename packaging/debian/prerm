@@ -1,16 +1,40 @@
 #!/bin/sh
 set -e
 
+# Stop and disable the powerstats user service for every user who has it enabled.
+# This is called before files are removed, so the service file still exists.
+stop_user_service() {
+    # Enumerate all human users (UID 1000-59999) via passwd
+    while IFS=: read -r username _ uid _ _ homedir _; do
+        case "$uid" in
+            [0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) ;;  # 1000-59999
+            *) continue ;;
+        esac
+        [ "$uid" -lt 1000 ] && continue
+        [ "$uid" -gt 59999 ] && continue
+
+        WANTS_LINK="$homedir/.config/systemd/user/default.target.wants/powerstats.service"
+        UNIT_LINK="$homedir/.config/systemd/user/powerstats.service"
+
+        # Only act on users who actually have the service enabled
+        if [ -e "$WANTS_LINK" ] || [ -e "$UNIT_LINK" ]; then
+            # If user has a live session, stop the running service
+            XDG_RUN="/run/user/$uid"
+            if [ -d "$XDG_RUN" ]; then
+                su -l "$username" -c \
+                    "systemctl --user stop powerstats.service 2>/dev/null; \
+                     systemctl --user disable powerstats.service 2>/dev/null" \
+                    2>/dev/null || true
+            fi
+            # Remove wants symlink and any legacy unit symlink regardless
+            rm -f "$WANTS_LINK" "$UNIT_LINK" 2>/dev/null || true
+        fi
+    done < /etc/passwd
+}
+
 case "$1" in
     remove|purge|upgrade|deconfigure|failed-upgrade)
-        # Stop and disable the daemon for the current user if running in a session
-        if [ -n "$SUDO_USER" ] && command -v systemctl >/dev/null 2>&1; then
-            su - "$SUDO_USER" -c \
-                "systemctl --user stop powerstats.service; systemctl --user disable powerstats.service" \
-                2>/dev/null || true
-            SYSTEMD_USER_DIR="/home/$SUDO_USER/.config/systemd/user"
-            rm -f "$SYSTEMD_USER_DIR/powerstats.service"
-        fi
+        stop_user_service
     ;;
     *)
         echo "prerm called with unknown argument '$1'" >&2

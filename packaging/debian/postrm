@@ -1,21 +1,56 @@
 #!/bin/sh
 set -e
 
+refresh_desktop_caches() {
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database /usr/share/applications 2>/dev/null || true
+    fi
+}
+
 case "$1" in
     purge)
-        # Remove user data on purge (not on simple remove — preserve user data)
-        echo "Purging PowerStats. User database at ~/.local/share/powerstats.db is NOT removed."
-        echo "Remove it manually if desired: rm -f ~/.local/share/powerstats.db"
+        # On purge: remove per-user data, linger settings, and leftover config.
+        # 'remove' intentionally preserves the user's database.
+        while IFS=: read -r username _ uid _ _ homedir _; do
+            [ "$uid" -lt 1000 ] && continue
+            [ "$uid" -gt 59999 ] && continue
+
+            # Remove SQLite database (purge only)
+            rm -f "$homedir/.local/share/powerstats.db" \
+                  "$homedir/.local/share/powerstats.db-wal" \
+                  "$homedir/.local/share/powerstats.db-shm" \
+                  2>/dev/null || true
+
+            # Remove app config
+            rm -rf "$homedir/.config/powerstats" 2>/dev/null || true
+
+            # Remove any leftover systemd user unit/wants (belt-and-suspenders)
+            rm -f "$homedir/.config/systemd/user/powerstats.service" \
+                  "$homedir/.config/systemd/user/default.target.wants/powerstats.service" \
+                  2>/dev/null || true
+
+            # Disable linger if it was enabled solely for this app
+            # (only if the user has no other services in their wants dir)
+            WANTS_DIR="$homedir/.config/systemd/user/default.target.wants"
+            if [ -d "$WANTS_DIR" ] && [ -z "$(ls -A "$WANTS_DIR" 2>/dev/null)" ]; then
+                loginctl disable-linger "$username" 2>/dev/null || true
+            fi
+        done < /etc/passwd
+
+        refresh_desktop_caches
     ;;
+
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
-        # Refresh icon and desktop caches
-        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-            gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+        # Tell the system-level systemd the service file is gone
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload 2>/dev/null || true
         fi
-        if command -v update-desktop-database >/dev/null 2>&1; then
-            update-desktop-database /usr/share/applications || true
-        fi
+        refresh_desktop_caches
     ;;
+
     *)
         echo "postrm called with unknown argument '$1'" >&2
         exit 1

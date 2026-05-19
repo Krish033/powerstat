@@ -141,6 +141,16 @@ install -m 644 "$PROJECT_ROOT/packaging/powerstats-user.service" \
     "$SYSTEMD_DEST/powerstats.service"
 
 # ---------------------------------------------------------------------------
+# Install systemd user preset -> /usr/lib/systemd/user-preset/
+# This causes 'systemctl --user preset-all' to auto-enable the service
+# for every user on their first login, without any D-Bus or SUDO_USER tricks.
+# ---------------------------------------------------------------------------
+PRESET_DEST="$STAGE_DIR/usr/lib/systemd/user-preset"
+mkdir -p "$PRESET_DEST"
+install -m 644 "$PROJECT_ROOT/packaging/50-powerstats.preset" \
+    "$PRESET_DEST/50-powerstats.preset"
+
+# ---------------------------------------------------------------------------
 # Install DEBIAN control files
 # ---------------------------------------------------------------------------
 DEBIAN_DIR="$STAGE_DIR/DEBIAN"

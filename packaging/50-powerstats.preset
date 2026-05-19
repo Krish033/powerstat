@@ -1,0 +1,10 @@
+# systemd user-preset for PowerStats
+# Installed to /usr/lib/systemd/user-preset/50-powerstats.preset
+#
+# When a user's systemd manager first starts (login or linger boot),
+# it runs 'systemctl --user preset-all'. This file tells systemd to
+# enable powerstats.service automatically for that user — without
+# needing D-Bus, SUDO_USER, or any interactive install-time tricks.
+#
+# Reference: systemd.preset(5)
+enable powerstats.service

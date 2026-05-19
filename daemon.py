@@ -7,7 +7,16 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    import sys
+    print(
+        "ERROR: psutil is not installed. "
+        "Install it with: sudo apt-get install python3-psutil",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +25,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("powerstats.daemon")
 
-DB_PATH = os.path.expanduser("~/.local/share/powerstats.db")
+# Prefer XDG_DATA_HOME (set explicitly in the .service file) so ~ always
+# resolves to the correct user's home, not root's, regardless of how the
+# process was launched.
+_xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+DB_PATH = os.path.join(_xdg_data, "powerstats.db")
 # Run pruning every 1 hour (360 loops * 10 seconds = 3600 seconds)
 PRUNE_INTERVAL_LOOPS = 360
 
@@ -285,4 +298,5 @@ def run_daemon():
 
 
 if __name__ == '__main__':
+    log.info("PowerStats daemon starting (pid=%d, db=%s)", os.getpid(), DB_PATH)
     run_daemon()
